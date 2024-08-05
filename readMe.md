@@ -36,12 +36,12 @@ This Python program automatically monitors the stock market for high implied vol
 ```python
 API_KEY = 'your_api_key_here'
 BASE_URL = 'https://api.example.com/v1'  # Replace with actual API endpoint
+```
 
 3. Update the email configuration in the send_email_alert function:
-sender_email = "your_email@gmail.com"
-sender_password = "your_app_password"
-receiver_email = "your_email@example.com"
-```
+   sender_email = "your_email@gmail.com"
+   sender_password = "your_app_password"
+   receiver_email = "your_email@example.com"
 
 Usage
 Run the script:
