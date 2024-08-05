@@ -41,6 +41,7 @@ BASE_URL = 'https://api.example.com/v1'  # Replace with actual API endpoint
 sender_email = "your_email@gmail.com"
 sender_password = "your_app_password"
 receiver_email = "your_email@example.com"
+```
 
 Usage
 Run the script:
@@ -48,20 +49,21 @@ python high_iv_alert.py
 
 The program will start monitoring stocks and send email alerts when it finds stocks meeting the criteria.
 
-***Customization***
--   To monitor a different set of stocks, modify the fetch_high_iv_stocks function.
--   Adjust the price and IV thresholds in the process_stock function.
--   Change the check frequency by modifying the asyncio.sleep(3600) call in the main function.
+**_Customization_**
 
-***Notes***
--   Ensure you comply with the terms of service of your chosen stock data API.
--   Be aware of rate limits and adjust the code if necessary to avoid exceeding them.
--   This program is for educational purposes only and should not be considered financial advice.
+- To monitor a different set of stocks, modify the fetch_high_iv_stocks function.
+- Adjust the price and IV thresholds in the process_stock function.
+- Change the check frequency by modifying the asyncio.sleep(3600) call in the main function.
 
-***Contributing***
+**_Notes_**
+
+- Ensure you comply with the terms of service of your chosen stock data API.
+- Be aware of rate limits and adjust the code if necessary to avoid exceeding them.
+- This program is for educational purposes only and should not be considered financial advice.
+
+**_Contributing_**
 Contributions, issues, and feature requests are welcome. Feel free to check issues page if you want to contribute.
 
 License
 MIT
 https://choosealicense.com/licenses/mit/
-```
