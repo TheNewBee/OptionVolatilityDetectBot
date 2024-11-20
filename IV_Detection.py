@@ -1,62 +1,82 @@
-import asyncio
-import aiohttp
 import pandas as pd
 from datetime import datetime
 import smtplib
 from email.message import EmailMessage
+from ib_insync import *
+import numpy as np
+import time
 
-# Replace with a real API key from a stock data provider
-API_KEY = 'your_api_key_here'
-BASE_URL = 'https://api.example.com/v1'  # Replace with actual API endpoint
+# Connect to Interactive Brokers TWS or IB Gateway
+ib = IB()
+ib.connect('127.0.0.1', 7497, clientId=1)  # Use 7496 for IB Gateway
 
-async def fetch_stock_data(session, symbol):
-    url = f"{BASE_URL}/stock/{symbol}/quote?token={API_KEY}"
-    async with session.get(url) as response:
-        if response.status == 200:
-            data = await response.json()
-            return symbol, data['latestPrice']
-    return symbol, None
-
-async def fetch_option_data(session, symbol):
-    url = f"{BASE_URL}/stock/{symbol}/options?token={API_KEY}"
-    async with session.get(url) as response:
-        if response.status == 200:
-            data = await response.json()
-            return symbol, data
-    return symbol, None
-
-async def process_stock(session, symbol):
-    stock_price, option_data = await asyncio.gather(
-        fetch_stock_data(session, symbol),
-        fetch_option_data(session, symbol)
-    )
-    
-    if stock_price[1] is None or option_data[1] is None:
-        return None
-
-    price = stock_price[1]
-    options = option_data[1]
-
-    if price > 10:
-        high_iv_options = [opt for opt in options if opt['impliedVolatility'] > 1.5]
-        if high_iv_options:
-            return f"{symbol}: Price ${price:.2f}, IV > 150%"
-    
+def fetch_stock_and_options_data(symbol):
+    try:
+        # Create contract
+        stock = Stock(symbol, 'SMART', 'USD')
+        ib.qualifyContracts(stock)
+        
+        # Get stock price
+        ticker = ib.reqMktData(stock)
+        ib.sleep(1)  # Wait for data to arrive
+        if not ticker.marketPrice():
+            return None
+        
+        price = ticker.marketPrice()
+        
+        # Get options chains
+        chains = ib.reqSecDefOptParams(stock.symbol, '', stock.secType, stock.conId)
+        if not chains:
+            return None
+            
+        chain = next(c for c in chains if c.exchange == 'SMART')
+        
+        # Get strikes near the money
+        strikes = [strike for strike in chain.strikes
+                  if 0.8 * price <= strike <= 1.2 * price]
+                  
+        expirations = sorted(exp for exp in chain.expirations)[:3]  # Next 3 expirations
+        
+        contracts = []
+        for expiration in expirations:
+            for strike in strikes:
+                contracts.append(Option(symbol, expiration, strike, 'C', 'SMART'))
+                contracts.append(Option(symbol, expiration, strike, 'P', 'SMART'))
+        
+        ib.qualifyContracts(*contracts)
+        
+        # Get market data for all contracts
+        tickers = ib.reqTickers(*contracts)
+        ib.sleep(1)  # Wait for data
+        
+        # Find highest IV
+        max_iv = 0
+        for ticker in tickers:
+            if ticker.modelGreeks and ticker.modelGreeks.impliedVol:
+                iv = ticker.modelGreeks.impliedVol
+                max_iv = max(max_iv, iv)
+        
+        if price > 10 and max_iv > 1.5:  # IV > 150%
+            return f"{symbol}: Price ${price:.2f}, Max IV {max_iv*100:.1f}%"
+            
+    except Exception as e:
+        print(f"Error processing {symbol}: {str(e)}")
+        
     return None
 
-async def fetch_high_iv_stocks():
-    # Get S&P 500 symbols (you can replace this with any list of stocks)
+def fetch_high_iv_stocks():
+    # Get S&P 500 symbols
     sp500 = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')[0]
     symbols = sp500['Symbol'].tolist()
-
-    high_iv_stocks = []
     
-    async with aiohttp.ClientSession() as session:
-        tasks = [process_stock(session, symbol) for symbol in symbols]
-        results = await asyncio.gather(*tasks)
-        
-        high_iv_stocks = [result for result in results if result is not None]
-
+    high_iv_stocks = []
+    for symbol in symbols:
+        result = fetch_stock_and_options_data(symbol)
+        if result:
+            high_iv_stocks.append(result)
+            print(f"Found high IV: {result}")
+        ib.sleep(0.1)  # Rate limiting
+            
     return high_iv_stocks
 
 def send_email_alert(alerts):
@@ -74,18 +94,34 @@ def send_email_alert(alerts):
         smtp.login(sender_email, sender_password)
         smtp.send_message(msg)
 
-async def main():
+def main():
     while True:
-        print(f"Checking market data at {datetime.now()}")
-        high_iv_stocks = await fetch_high_iv_stocks()
-        if high_iv_stocks:
-            send_email_alert(high_iv_stocks)
-            print(f"Alert sent for {len(high_iv_stocks)} stocks")
-        else:
-            print("No stocks meeting the criteria found")
-        
+        try:
+            print(f"Checking market data at {datetime.now()}")
+            if not ib.isConnected():
+                ib.connect('127.0.0.1', 7497, clientId=1)
+                
+            high_iv_stocks = fetch_high_iv_stocks()
+            if high_iv_stocks:
+                send_email_alert(high_iv_stocks)
+                print(f"Alert sent for {len(high_iv_stocks)} stocks")
+            else:
+                print("No stocks meeting the criteria found")
+                
+        except Exception as e:
+            print(f"Error in main loop: {str(e)}")
+            if ib.isConnected():
+                ib.disconnect()
+            time.sleep(10)  # Wait before reconnecting
+            continue
+            
         # Wait for an hour before the next check
-        await asyncio.sleep(3600)
+        time.sleep(3600)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        util.startLoop()  # This will start IB's event loop
+        main()
+    finally:
+        if ib.isConnected():
+            ib.disconnect()
